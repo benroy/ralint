@@ -18,6 +18,7 @@ setup(name='ralint',
       license="MIT",
       install_requires=[
           'pyral',
+          'requests'
       ],
       py_modules=["ralint"],
       zip_safe=False,
