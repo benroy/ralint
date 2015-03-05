@@ -2,15 +2,15 @@
 
 
 from unittest import TestCase
-
 import ralint
+
 
 class TestRalint(TestCase):
 
     """Ralint Tests."""
 
     def test_rally_query(self):
-        """RallyQuery is initially empty."""
+        """RallyQuery is initially None."""
         query = ralint.RallyQuery()
         self.assertTrue(query() is None)
 

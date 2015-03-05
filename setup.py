@@ -26,4 +26,5 @@ setup(name='ralint',
               'ralint = ralint:ralint',
           ],
       },
-      test_suite='tests')
+      test_suite='nose.collector',
+      tests_require=['nose'])
