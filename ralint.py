@@ -217,9 +217,9 @@ class Ralint(object):
                                           projectScopeDown=True)
 
         if len(pyral_resp.errors) > 0:
-            print "Could not get '{0}', query='{1}'".format(
+            print("Could not get '{0}', query='{1}'".format(
                 entity_name,
-                query() if query else '')
+                query() if query else ''))
 
             print pyral_resp.errors
             raise RuntimeError
@@ -232,9 +232,9 @@ def output(title, details):
     if len(details) == 0:
         return
 
-    print '==={0} ({1})'.format(title, len(details))
-    print '\n'.join(details)
-    print '\n'
+    print('==={0} ({1})'.format(title, len(details)))
+    print('\n'.join(details))
+    print('\n')
 
 
 def output_stories(title, stories):
