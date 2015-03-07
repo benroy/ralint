@@ -1,7 +1,7 @@
 """Ralint tests."""
 
 
-from unittest import TestCase
+from unittest2 import TestCase
 import ralint
 
 
