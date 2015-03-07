@@ -10,6 +10,24 @@ from pyral import Rally, rallyWorkset
 __version__ = '0.0.0'
 
 
+def current_tasks_with_no_owner(rally):
+    """Return the list of stories in the current iteration with no owner."""
+    query = RallyQuery("Owner = null", current_iteration=True)
+
+    return rally.get('Task', query)
+
+
+def current_tasks_with_no_estimate(rally):
+    """Return list of tasks with no user."""
+    query = RallyQuery(
+        ['Estimate = null',
+         'Estimate = 0'],
+        bool_op='OR',
+        current_iteration=True)
+
+    return rally.get('Task', query=query)
+
+
 def users_with_no_current_stories(rally):
     """Return list of users with no current stories."""
     query = RallyQueryCurrentIteration()
@@ -31,7 +49,11 @@ def users_with_too_many_tasks(rally):
 
 def current_stories_with_no_points(rally):
     """Return the list of stories in the current iteration with no points."""
-    query = RallyQuery("PlanEstimate = null", current_iteration=True)
+    query = RallyQuery(
+        ['PlanEstimate = null',
+         'PlanEstimate = 0'],
+        bool_op="OR",
+        current_iteration=True)
 
     return rally.get('HierarchicalRequirement', query=query)
 
@@ -191,11 +213,11 @@ def output(title, details):
 
 def output_stories(title, stories):
     """Format the output of a story check function."""
-    output(title, [format_story(s) for s in stories])
+    output(title, [format_artifact(s) for s in stories])
 
 
-def format_story(story):
-    """Format the story like US12345: This is a story about Jack and Diane."""
+def format_artifact(story):
+    """Format artifact like US12345: This is a story about Jack and Diane."""
     return '{0}: {1}'.format(story.FormattedID, story.Name)
 
 
@@ -226,6 +248,12 @@ def _run_checkers(rally):
 
     output_stories('Current stories with no description',
                    current_stories_with_no_desc(rally))
+
+    output_stories('Current tasks with no estimate',
+                   current_tasks_with_no_estimate(rally))
+
+    output_stories('Current tasks with no owner',
+                   current_tasks_with_no_owner(rally))
 
 
 def ralint():
