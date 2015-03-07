@@ -221,7 +221,7 @@ class Ralint(object):
                 entity_name,
                 query() if query else ''))
 
-            print pyral_resp.errors
+            print(pyral_resp.errors)
             raise RuntimeError
 
         return list(pyral_resp)
