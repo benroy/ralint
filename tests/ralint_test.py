@@ -92,7 +92,7 @@ class TestRalint(TestCase):
         self.assertRaises(RuntimeError, ralint_obj.get, 'DummyEntity')
 
     def test_get_passes_query(self):
-        """Rally.get passes its query to pyral."""
+        """Rally.get passes its query to pyral.Rally.get."""
         test_query = ralint.RallyQuery('X > Y')
 
         def get_delegate(_, query=None, **kwargs):
@@ -103,7 +103,53 @@ class TestRalint(TestCase):
 
         ralint_obj.get('some entity', test_query)
 
+    def test_get_adds_user_to_stories(self):
+        """Rally.get adds user filter to story queries."""
+        users = ['Ike', 'Luke']
 
+        def get_delegate(_, query=None, **kwargs):
+            """Check the query passed to PyralRallyMock.get."""
+            user_regexp = r'.*\) OR \(.*'.join(users)
+            self.assertRegexpMatches(query, user_regexp)
+
+        ralint_obj = ralint.Ralint(
+            PyralRallyMock(get_delegate=get_delegate),
+            include_users=users)
+
+        ralint_obj.get('HierarchicalRequirement')
+
+    def test_get_wont_always_add_user(self):
+        """Rally.get won't add user filter to entities without owner attr."""
+        users = ['Ike', 'Luke']
+
+        def get_delegate(_, query=None, **kwargs):
+            """Check the query passed to PyralRallyMock.get."""
+            user_regexp = r'.*\) OR \(.*'.join(users)
+            self.assertNotRegexpMatches(query, user_regexp)
+
+        ralint_obj = ralint.Ralint(
+            PyralRallyMock(get_delegate=get_delegate),
+            include_users=users)
+
+        ralint_obj.get('Iteration', ralint.RallyQuery('x < y'))
+
+    def test_get_inserts_user(self):
+        """Rally.get inserts user filter into initial query."""
+        initial_query = ralint.RallyQuery('x < y')
+        initial_query_str = initial_query()
+        users = ['Ike', 'Luke']
+
+        def get_delegate(_, query=None, **kwargs):
+            """Check the query passed to PyralRallyMock.get."""
+            user_regexp = r'.*\) OR \(.*'.join(users)
+            self.assertRegexpMatches(query, user_regexp)
+            self.assertRegexpMatches(query, initial_query_str)
+
+        ralint_obj = ralint.Ralint(
+            PyralRallyMock(get_delegate=get_delegate),
+            include_users=users)
+
+        ralint_obj.get('Task', initial_query)
 # test rally query is formatted correctly
 # test output functions?
 # test checkers?
