@@ -146,59 +146,85 @@ class RallyQueryCurrentIteration(RallyQuery):
         super(RallyQueryCurrentIteration, self).__init__(terms)
 
 
-def get_user_attribute_path(entity_name):
+def build_user_name_reference(entity_name):
     """Get the path to the user associated with entity."""
-    return {
-        "HierarchicalRequirement": ["Owner"],
-        "UserIterationCapacity": ["User"],
-        "User": []
+    owner_ref = {
+        'HierarchicalRequirement': ['Owner'],
+        'UserIterationCapacity':   ['User'],
+        'Task':                    ['Owner'],
+        'User':                    []
     }.get(entity_name, None)
+
+    if owner_ref is None:
+        return
+
+    return ".".join(owner_ref + ['UserName'])
 
 
 class Ralint(object):
 
     """Ralint main object."""
 
-    def __init__(self):
+    def __init__(self, pyral_rally_instance, include_users=None):
         """Ralint constructor."""
         super(Ralint, self).__init__()
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--teamMembers', nargs='+')
-        self.__ralint_args, pyral_args = parser.parse_known_args()
-        self.__team_members = self.__ralint_args.teamMembers
-        server, user, password, _, _, project = rallyWorkset(pyral_args)
-        self.__rally = Rally(server, user, password, project=project)
+        self.__rally = pyral_rally_instance
+        self.__include_users = include_users
+
+    def __apply_query_filters(self, entity_name, query):
+        """Insert additional terms into query."""
+        # if no team_members were specified, return unmodified query
+        if self.__include_users is None:
+            return query
+
+        path = build_user_name_reference(entity_name)
+
+        # if entity has no user attribute, return unmodified query
+        if path is None:
+            return query
+
+        # create query that OR's all team_members together
+        user_query = RallyQuery(
+            ["{0} = {1}".format(path, m) for m in self.__include_users],
+            bool_op='OR')
+
+        # if initial query was empty, return user_query
+        if query is None:
+            return user_query
+
+        # or add user_query to existing query
+        query.add_term(user_query)
+        return query
 
     def get(self, entity_name, query=None):
-        """Wrap the pyral get method."""
-        if self.__team_members is not None:
-            path = get_user_attribute_path(entity_name)
-            if path is not None:
-                user_query = []
-                path.append("UserName")
-                path = ".".join(path)
-                for member in self.__team_members:
-                    user_query.append("{0} = {1}".format(path, member))
-                if query is None:
-                    query = RallyQuery(user_query, bool_op='OR')
-                else:
-                    query.add_term(RallyQuery(user_query, bool_op='OR'))
+        """
+        Wrap the pyral get method.
+
+        Does several things (should only do one?)
+        1) Inserts user terms into query if team_members are specified
+        2) Inserts additional projectScopeDown arg into pyral.Rally.get
+        3) Does some minimal, generic error "handling"
+        4) Coverts pyral's response object to a list of entities
+        """
+        query = self.__apply_query_filters(entity_name, query)
 
         if query is None:
-            resp = self.__rally.get(entity_name,
-                                    projectScopeDown=True)
+            pyral_resp = self.__rally.get(entity_name,
+                                          projectScopeDown=True)
         else:
-            resp = self.__rally.get(entity_name,
-                                    query=query(),
-                                    projectScopeDown=True)
+            pyral_resp = self.__rally.get(entity_name,
+                                          query=query(),
+                                          projectScopeDown=True)
 
-        if len(resp.errors) > 0:
-            print "Could not get '{0}', query='{1}'".format(entity_name,
-                                                            query())
-            print resp.errors
+        if len(pyral_resp.errors) > 0:
+            print "Could not get '{0}', query='{1}'".format(
+                entity_name,
+                query() if query else '')
+
+            print pyral_resp.errors
             raise RuntimeError
 
-        return list(resp)
+        return list(pyral_resp)
 
 
 def output(title, details):
@@ -223,7 +249,14 @@ def format_artifact(story):
 
 def _ralint_init():
     """Return an instance of pyral.Rally."""
-    return Ralint()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--teamMembers', nargs='+')
+    ralint_args, pyral_args = parser.parse_known_args()
+    team_members = ralint_args.teamMembers
+    server, user, password, _, _, project = rallyWorkset(pyral_args)
+    rally = Rally(server, user, password, project=project)
+
+    return Ralint(rally, include_users=team_members)
 
 
 def _run_checkers(rally):

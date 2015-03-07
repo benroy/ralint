@@ -7,7 +7,7 @@ import ralint
 
 class TestRalintQuery(TestCase):
 
-    """Ralint Tests."""
+    """RalintQuery Tests."""
 
     def test_terms_are_validated(self):
         """RallyQuery terms are validated."""
@@ -46,6 +46,62 @@ class TestRalintQuery(TestCase):
         self.assertRegexpMatches(
             query(),
             r'.*Iteration.*Date.*today.*\) AND \(.*Iteration.*Date.*today')
+
+
+class PyralRallyRespMock(object):
+
+    """Mock for pyral RallyRESTResponse."""
+
+    def __init__(self, errors=None):
+        """Initialize PyralRallyMock."""
+        self.errors = errors or []
+
+    def __iter__(self):
+        """Implement iterable protocol."""
+        return self
+
+    def next(self):
+        """Implement iterable protocol."""
+        raise StopIteration
+
+
+class PyralRallyMock(object):
+
+    """Mock for pyral Rally."""
+
+    def __init__(self, resp=None, get_delegate=None):
+        """Initialize PyralRallyMock."""
+        self.__resp = resp or PyralRallyRespMock()
+        self.__get_delegate = get_delegate
+
+    def get(self, *args, **kwargs):
+        """Get the mocked pyral RallyRESTResponse."""
+        if self.__get_delegate is not None:
+            self.__get_delegate(*args, **kwargs)
+        return self.__resp
+
+
+class TestRalint(TestCase):
+
+    """Ralint Tests."""
+
+    def test_get_handles_errors(self):
+        """Rally.get checks for errors and handles them."""
+        resp = PyralRallyRespMock(errors=['error1', 'error2'])
+        ralint_obj = ralint.Ralint(PyralRallyMock(resp))
+        self.assertRaises(RuntimeError, ralint_obj.get, 'DummyEntity')
+
+    def test_get_passes_query(self):
+        """Rally.get passes its query to pyral."""
+        test_query = ralint.RallyQuery('X > Y')
+
+        def get_delegate(_, query=None, **kwargs):
+            """Check the query passed to PyralRallyMock.get."""
+            self.assertEqual(query, test_query())
+
+        ralint_obj = ralint.Ralint(PyralRallyMock(get_delegate=get_delegate))
+
+        ralint_obj.get('some entity', test_query)
 
 
 # test rally query is formatted correctly
