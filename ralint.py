@@ -3,6 +3,8 @@
 
 
 import argparse
+import re
+import types
 from pyral import Rally, rallyWorkset
 
 __version__ = '0.0.0'
@@ -10,10 +12,9 @@ __version__ = '0.0.0'
 
 def users_with_no_current_stories(rally):
     """Return list of users with no current stories."""
-    query = RallyQuery()
-    query.and_current_iteration()
+    query = RallyQueryCurrentIteration()
     stories = rally.get('HierarchicalRequirement', query)
-    users = set(rally.get('User', RallyQuery()))
+    users = set(rally.get('User'))
     users_with_stories = set([s.Owner for s in stories])
     return users - users_with_stories
 
@@ -22,8 +23,7 @@ def users_with_too_many_tasks(rally):
     """Check if a user has too many tasks."""
     # get user's capacity
     # need a way to default to some value
-    query = RallyQuery()
-    query.and_current_iteration()
+    query = RallyQueryCurrentIteration()
     response = rally.get('UserIterationCapacity', query)
 
     return [uic for uic in response if uic.TaskEstimates > uic.Capacity]
@@ -31,45 +31,35 @@ def users_with_too_many_tasks(rally):
 
 def current_stories_with_no_points(rally):
     """Return the list of stories in the current iteration with no points."""
-    query = RallyQuery()
-    query.and_current_iteration()
-    query.and_term("PlanEstimate = null")
+    query = RallyQuery("PlanEstimate = null", current_iteration=True)
 
     return rally.get('HierarchicalRequirement', query=query)
 
 
 def current_stories_with_no_owner(rally):
     """Return the list of stories in the current iteration with no owner."""
-    query = RallyQuery()
-    query.and_current_iteration()
-    query.and_term("Owner = null")
+    query = RallyQuery("Owner = null", current_iteration=True)
 
     return rally.get('HierarchicalRequirement', query)
 
 
 def current_stories_with_no_desc(rally):
     """Return the stories in the current iteration with no description."""
-    query = RallyQuery()
-    query.and_current_iteration()
-    query.and_term("Description = null")
+    query = RallyQuery("Description = null", current_iteration=True)
 
     return rally.get('HierarchicalRequirement', query)
 
 
 def current_stories_with_no_tasks(rally):
     """Return the list of stories in the current iteration with no tasks."""
-    query = RallyQuery()
-    query.and_current_iteration()
-    query.and_term("TaskStatus = NONE")
+    query = RallyQuery("TaskStatus = NONE", current_iteration=True)
 
     return rally.get('HierarchicalRequirement', query)
 
 
 def current_stories_blocked(rally):
     """Return the list of stories that are blocked."""
-    query = RallyQuery()
-    query.and_current_iteration()
-    query.and_term("Blocked = true")
+    query = RallyQuery("Blocked = true", current_iteration=True)
 
     return rally.get('HierarchicalRequirement', query)
 
@@ -78,37 +68,60 @@ class RallyQuery(object):
 
     """Rally Query."""
 
-    def __init__(self):
+    def __init__(self, term, current_iteration=False, bool_op='AND'):
         """Rally Query constructor."""
         super(RallyQuery, self).__init__()
+
         self.__query_string = None
 
-    def and_term(self, term):
-        """AND a term with the query."""
-        if self.__query_string is None:
-            self.__query_string = "{0}".format(term)
-        else:
-            self.__query_string = "({0}) AND ({1})".format(self.__query_string,
-                                                           term)
+        self.add_term(term, bool_op)
 
-    def or_term(self, term):
-        """OR a term with the query."""
-        if self.__query_string is None:
-            self.__query_string = "{0}".format(term)
+        if current_iteration:
+            self.and_current_iteration()
+
+    @staticmethod
+    def __validate_term(term):
+        """Raise an exception if term is invalid."""
+        if not (isinstance(term, RallyQuery) or
+                re.compile(r'^[^\s\(\)]+ [^\s\(\)]+ [^\s\(\)]+$').match(term)):
+            raise ValueError('Invalid format. Must be a RallyQuery or a '
+                             'string like: X > Y')
+
+    def add_term(self, term, bool_op='AND'):
+        """Add a term to the query."""
+        if type(term) in [types.ListType, types.TupleType]:
+            for sub_term in term:
+                self.add_term(sub_term, bool_op)
         else:
-            self.__query_string = "({0}) OR ({1})".format(self.__query_string,
-                                                          term)
+            self.__validate_term(term)
+            term = term() if isinstance(term, RallyQuery) else term
+            if self.__query_string is None:
+                self.__query_string = term
+            else:
+                self.__query_string = "({0}) {1} ({2})".format(
+                    self.__query_string,
+                    bool_op,
+                    term)
 
     def and_current_iteration(self):
         """Add current iteration to query."""
-        query = RallyQuery()
-        query.and_term("Iteration.StartDate < today")
-        query.and_term("Iteration.EndDate > today")
-        self.and_term(query())
+        self.add_term(RallyQueryCurrentIteration())
 
     def __call__(self):
         """Return the query string."""
         return self.__query_string
+
+
+class RallyQueryCurrentIteration(RallyQuery):
+
+    """Shortcut for creating a RallyQuery for the current iteration."""
+
+    def __init__(self):
+        """Construct a RallyQueryCurrentIteration instance."""
+        terms = ['Iteration.StartDate < today',
+                 'Iteration.EndDate > today']
+
+        super(RallyQueryCurrentIteration, self).__init__(terms)
 
 
 def get_user_attribute_path(entity_name):
@@ -134,21 +147,28 @@ class Ralint(object):
         server, user, password, _, _, project = rallyWorkset(pyral_args)
         self.__rally = Rally(server, user, password, project=project)
 
-    def get(self, entity_name, query):
+    def get(self, entity_name, query=None):
         """Wrap the pyral get method."""
         if self.__team_members is not None:
             path = get_user_attribute_path(entity_name)
             if path is not None:
-                user_query = RallyQuery()
+                user_query = []
                 path.append("UserName")
                 path = ".".join(path)
                 for member in self.__team_members:
-                    user_query.or_term("{0} = {1}".format(path, member))
-                query.and_term(user_query())
+                    user_query.append("{0} = {1}".format(path, member))
+                if query is None:
+                    query = RallyQuery(user_query, bool_op='OR')
+                else:
+                    query.add_term(RallyQuery(user_query, bool_op='OR'))
 
-        resp = self.__rally.get(entity_name,
-                                query=query(),
-                                projectScopeDown=True)
+        if query is None:
+            resp = self.__rally.get(entity_name,
+                                    projectScopeDown=True)
+        else:
+            resp = self.__rally.get(entity_name,
+                                    query=query(),
+                                    projectScopeDown=True)
 
         if len(resp.errors) > 0:
             print "Could not get '{0}', query='{1}'".format(entity_name,
