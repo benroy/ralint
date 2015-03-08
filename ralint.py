@@ -3,6 +3,7 @@
 
 
 import argparse
+import inspect
 import re
 import types
 from pyral import Rally, rallyWorkset
@@ -10,80 +11,91 @@ from pyral import Rally, rallyWorkset
 __version__ = '0.0.0'
 
 
-def current_tasks_with_no_owner(rally):
-    """Return the list of stories in the current iteration with no owner."""
+def check_tasks_with_no_owner(rally):
+    """Disowned tasks."""
     query = RallyQuery("Owner = null", current_iteration=True)
 
-    return rally.get('Task', query)
+    return [format_artifact(t) for t in rally.get('Task', query)]
 
 
-def current_tasks_with_no_estimate(rally):
-    """Return list of tasks with no user."""
+def check_tasks_with_no_estimate(rally):
+    """Unestimated tasks."""
     query = RallyQuery(
         ['Estimate = null',
          'Estimate = 0'],
         bool_op='OR',
         current_iteration=True)
 
-    return rally.get('Task', query=query)
+    return [format_artifact(t) for t in rally.get('Task', query=query)]
 
 
-def users_with_no_current_stories(rally):
-    """Return list of users with no current stories."""
+def check_users_with_no_stories(rally):
+    """Available users."""
     query = RallyQueryCurrentIteration()
     stories = rally.get('HierarchicalRequirement', query)
     users = set(rally.get('User'))
     users_with_stories = set([s.Owner for s in stories])
-    return users - users_with_stories
+
+    return [u.Name for u in users - users_with_stories]
 
 
-def users_with_too_many_tasks(rally):
-    """Check if a user has too many tasks."""
+def check_users_with_too_many_tasks(rally):
+    """Overtasked users."""
     # get user's capacity
     # need a way to default to some value
     query = RallyQueryCurrentIteration()
     response = rally.get('UserIterationCapacity', query)
 
-    return [uic for uic in response if uic.TaskEstimates > uic.Capacity]
+    uic_list = [uic for uic in response if uic.TaskEstimates > uic.Capacity]
+
+    return ['{0} capacity: {1}, task estimate {2}'.format(uic.User.Name,
+                                                          uic.Capacity,
+                                                          uic.TaskEstimates)
+            for uic in uic_list]
 
 
-def current_stories_with_no_points(rally):
-    """Return the list of stories in the current iteration with no points."""
+def check_stories_with_no_points(rally):
+    """Unestimated stories."""
     query = RallyQuery(
         ['PlanEstimate = null',
          'PlanEstimate = 0'],
         bool_op="OR",
         current_iteration=True)
 
-    return rally.get('HierarchicalRequirement', query=query)
+    return [format_artifact(s)
+            for s in rally.get('HierarchicalRequirement', query=query)]
 
 
-def current_stories_with_no_owner(rally):
-    """Return the list of stories in the current iteration with no owner."""
+def check_stories_with_no_owner(rally):
+    """Disowned stories."""
     query = RallyQuery("Owner = null", current_iteration=True)
 
-    return rally.get('HierarchicalRequirement', query)
+    return [format_artifact(s)
+            for s in rally.get('HierarchicalRequirement', query=query)]
 
 
-def current_stories_with_no_desc(rally):
-    """Return the stories in the current iteration with no description."""
+def check_stories_with_no_desc(rally):
+    """Undescribed stories."""
     query = RallyQuery("Description = null", current_iteration=True)
 
-    return rally.get('HierarchicalRequirement', query)
+    return [format_artifact(s)
+            for s in rally.get('HierarchicalRequirement', query=query)]
 
 
-def current_stories_with_no_tasks(rally):
-    """Return the list of stories in the current iteration with no tasks."""
+def check_stories_with_no_tasks(rally):
+    """Untaksed stories."""
     query = RallyQuery("TaskStatus = NONE", current_iteration=True)
 
-    return rally.get('HierarchicalRequirement', query)
+    return [format_artifact(s)
+            for s in rally.get('HierarchicalRequirement', query=query)]
 
 
-def current_stories_blocked(rally):
-    """Return the list of stories that are blocked."""
+def check_stories_blocked(rally):
+    """Blocked stories."""
     query = RallyQuery("Blocked = true", current_iteration=True)
 
-    return rally.get('HierarchicalRequirement', query)
+    return [format_artifact(s)
+            for s in rally.get('HierarchicalRequirement', query=query)]
 
 
 class RallyQuery(object):
@@ -237,11 +249,6 @@ def output(title, details):
     print('\n')
 
 
-def output_stories(title, stories):
-    """Format the output of a story check function."""
-    output(title, [format_artifact(s) for s in stories])
-
-
 def format_artifact(story):
     """Format artifact like US12345: This is a story about Jack and Diane."""
     return '{0}: {1}'.format(story.FormattedID, story.Name)
@@ -259,34 +266,20 @@ def _ralint_init():
     return Ralint(rally, include_users=team_members)
 
 
+def get_check_functions():
+    """Return all globally visible czech functions."""
+    checks = []
+    mod = inspect.getmodule(_ralint_init)
+    for (name, function) in inspect.getmembers(mod, inspect.isfunction):
+        if name.find('check_') == 0:
+            checks.append(function)
+    return checks
+
+
 def _run_checkers(rally):
     """Run rally lint checks."""
-    output('Users with no current stories',
-           [u.Name for u in users_with_no_current_stories(rally)])
-
-    output('Users with too many tasks',
-           ['{0} capacity: {1}, task estimate {2}'.format(uic.User.Name,
-                                                          uic.Capacity,
-                                                          uic.TaskEstimates)
-            for uic in users_with_too_many_tasks(rally)])
-
-    output_stories('Current stories with no points',
-                   current_stories_with_no_points(rally))
-
-    output_stories('Current stories with no owner',
-                   current_stories_with_no_owner(rally))
-
-    output_stories('Current stories with no tasks',
-                   current_stories_with_no_tasks(rally))
-
-    output_stories('Current stories with no description',
-                   current_stories_with_no_desc(rally))
-
-    output_stories('Current tasks with no estimate',
-                   current_tasks_with_no_estimate(rally))
-
-    output_stories('Current tasks with no owner',
-                   current_tasks_with_no_owner(rally))
+    for check_func in get_check_functions():
+        output(check_func.__doc__, check_func(rally))
 
 
 def ralint():
