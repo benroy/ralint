@@ -9,7 +9,7 @@ import ConfigParser
 import inspect
 import re
 import types
-from pyral import Rally
+import pyral
 
 __version__ = '0.0.0'
 
@@ -351,11 +351,20 @@ def _ralint_init():
 
     conf_args = RalintConfig(sys.argv[1:], conf_files).options
 
-    rally = Rally(
-        conf_args['rally_server'],
-        conf_args['rally_user'],
-        conf_args['rally_password'],
-        project=conf_args['rally_project'])
+    try:
+        rally = pyral.Rally(
+            conf_args['rally_server'],
+            conf_args['rally_user'],
+            conf_args['rally_password'],
+            project=conf_args['rally_project'])
+    except Exception as e:
+        print('\nCould not connect to rally')
+        print(str(e))
+        if str(e).find('Pinging') != -1 or str(e).find('ping: unknown host') != -1:
+            print('If you are behind a proxy, try setting HTTP_PROXY and HTTPS_PROXY in your env.')
+        print('\n\n')
+        raise
+
 
     return Ralint(rally, include_users=conf_args['include_users'])
 
