@@ -2,11 +2,14 @@
 """docstring for ralint module."""
 
 
+import sys
+import os
 import argparse
+import ConfigParser
 import inspect
 import re
 import types
-from pyral import Rally, rallyWorkset
+from pyral import Rally
 
 __version__ = '0.0.0'
 
@@ -52,6 +55,20 @@ def check_users_with_too_many_tasks(rally):
                                                           uic.Capacity,
                                                           uic.TaskEstimates)
             for uic in uic_list]
+
+
+def _check_stories_with_incomp_pred(rally):
+    """Incomplete dependencies."""
+    query = RallyQueryCurrentIteration()
+    current_stories = rally.get('HierarchicalRequirement', query)
+
+    unready_stories = {}
+    for story in current_stories:
+        for pred in story.Predecessors:
+            if pred.ScheduleState != 'Accepted':
+                unready_stories[story] = (unready_stories[story] or []) + [pred]
+
+
 
 
 def check_stories_with_no_points(rally):
@@ -254,16 +271,93 @@ def format_artifact(story):
     return '{0}: {1}'.format(story.FormattedID, story.Name)
 
 
-def _ralint_init():
-    """Return an instance of pyral.Rally."""
+def get_parser():
+    """Get Parser."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--teamMembers', nargs='+')
-    ralint_args, pyral_args = parser.parse_known_args()
-    team_members = ralint_args.teamMembers
-    server, user, password, _, _, project = rallyWorkset(pyral_args)
-    rally = Rally(server, user, password, project=project)
 
-    return Ralint(rally, include_users=team_members)
+    parser.add_argument(
+        '--conf_file',
+        help='Specify config file',
+        metavar='FILE',
+        default=os.path.expanduser('~/.ralint.conf'))
+
+    parser.add_argument(
+        '--rally_server',
+        help='Rally server domain name',
+        default='rally1.rallydev.com')
+
+    parser.add_argument(
+        '--rally_user',
+        help='User name used to login to Rally',
+        default=argparse.SUPPRESS)
+
+    parser.add_argument(
+        '--rally_password',
+        help='Password used to login to Rally',
+        default=argparse.SUPPRESS)
+
+    parser.add_argument(
+        '--rally_project',
+        help='Rally project',
+        default=argparse.SUPPRESS)
+
+    parser.add_argument(
+        '--include_users',
+        help='Only run checks on items owned by specified users',
+        nargs='+',
+        metavar='USER_NAME')
+
+    return parser
+
+
+class RalintConfig(object):
+
+    """RalintConfig."""
+
+    def __init__(self, cmd_line, conf_files):
+        """Initialize RalintConfig."""
+        super(RalintConfig, self).__init__()
+
+        parser = get_parser()
+
+        cmd_line_args = parser.parse_args(cmd_line)
+
+        # override with config file specifed in cmd line
+        conf_files.append(cmd_line_args.conf_file)
+
+        conf_file_args = {}
+        config = ConfigParser.SafeConfigParser()
+        if len(config.read(conf_files)) > 0:
+            conf_file_args = dict(config.items('ralint'))
+
+        # override with cmdline args
+        conf_file_args.update(vars(cmd_line_args))
+
+        self.options = conf_file_args
+
+
+def _ralint_init():
+    """Return an instance of Rally."""
+    conf_files = [
+
+        # override with config file from ~
+        os.path.expanduser('~/.ralint.conf'),
+
+        # override with enviroment
+        os.getenv('RALINT_CONF') or '',
+
+        # override with config file from cwd
+        os.path.abspath('.ralint_conf')]
+
+    conf_args = RalintConfig(sys.argv[1:], conf_files).options
+
+    rally = Rally(
+        conf_args['rally_server'],
+        conf_args['rally_user'],
+        conf_args['rally_password'],
+        project=conf_args['rally_project'])
+
+    return Ralint(rally, include_users=conf_args['include_users'])
 
 
 def get_check_functions():
