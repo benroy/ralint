@@ -88,7 +88,7 @@ class TestRalint(TestCase):
     def test_get_handles_errors(self):
         """Rally.get checks for errors and handles them."""
         resp = PyralRallyRespMock(errors=['error1', 'error2'])
-        ralint_obj = ralint.Ralint(PyralRallyMock(resp))
+        ralint_obj = ralint.Ralint(PyralRallyMock(resp), {})
         self.assertRaises(RuntimeError, ralint_obj.get, 'DummyEntity')
 
     def test_get_passes_query(self):
@@ -99,7 +99,7 @@ class TestRalint(TestCase):
             """Check the query passed to PyralRallyMock.get."""
             self.assertEqual(query, test_query())
 
-        ralint_obj = ralint.Ralint(PyralRallyMock(get_delegate=get_delegate))
+        ralint_obj = ralint.Ralint(PyralRallyMock(get_delegate=get_delegate), {})
 
         ralint_obj.get('some entity', test_query)
 
@@ -112,9 +112,11 @@ class TestRalint(TestCase):
             user_regexp = r'.*\) OR \(.*'.join(users)
             self.assertRegexpMatches(query, user_regexp)
 
+        options = {}
+        options['include_users']=users
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate),
-            include_users=users)
+            options)
 
         ralint_obj.get('HierarchicalRequirement')
 
@@ -126,10 +128,12 @@ class TestRalint(TestCase):
             """Check the query passed to PyralRallyMock.get."""
             user_regexp = r'.*\) OR \(.*'.join(users)
             self.assertNotRegexpMatches(query, user_regexp)
-
+        
+        options = {}
+        options['include_users']=users
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate),
-            include_users=users)
+            options)
 
         ralint_obj.get('Iteration', ralint.RallyQuery('x < y'))
 
@@ -145,9 +149,11 @@ class TestRalint(TestCase):
             self.assertRegexpMatches(query, user_regexp)
             self.assertRegexpMatches(query, initial_query_str)
 
+        options = {}
+        options['include_users']=users
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate),
-            include_users=users)
+            options)
 
         ralint_obj.get('Task', initial_query)
 # test rally query is formatted correctly

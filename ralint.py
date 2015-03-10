@@ -211,7 +211,7 @@ class Ralint(object):
     def __apply_query_filters(self, entity_name, query):
         """Insert additional terms into query."""
         # if no team_members were specified, return unmodified query
-        if self.options['include_users'] is None:
+        if not('include_users' in self.options) or self.options['include_users'] is None:
             return query
 
         path = build_user_name_reference(entity_name)
