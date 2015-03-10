@@ -42,6 +42,16 @@ def check_users_with_no_stories(rally):
     return [u.Name for u in users - users_with_stories]
 
 
+def check_stories_with_hi_points(rally):
+    """Oversized stories."""
+    query = RallyQuery(
+        'PlanEstimate >= {0}'.format(rally.options['points_per_iteration']),
+        current_iteration=True)
+
+    return [format_artifact(t)
+            for t in rally.get('HierarchicalRequirement', query)]
+
+
 def check_users_with_too_many_tasks(rally):
     """Overtasked users."""
     # get user's capacity
@@ -67,8 +77,6 @@ def _check_stories_with_incomp_pred(rally):
         for pred in story.Predecessors:
             if pred.ScheduleState != 'Accepted':
                 unready_stories[story] = (unready_stories[story] or []) + [pred]
-
-
 
 
 def check_stories_with_no_points(rally):
@@ -194,16 +202,16 @@ class Ralint(object):
 
     """Ralint main object."""
 
-    def __init__(self, pyral_rally_instance, include_users=None):
+    def __init__(self, pyral_rally_instance, conf_args):
         """Ralint constructor."""
         super(Ralint, self).__init__()
         self.__rally = pyral_rally_instance
-        self.__include_users = include_users
+        self.options = conf_args
 
     def __apply_query_filters(self, entity_name, query):
         """Insert additional terms into query."""
         # if no team_members were specified, return unmodified query
-        if self.__include_users is None:
+        if self.options['include_users'] is None:
             return query
 
         path = build_user_name_reference(entity_name)
@@ -214,7 +222,7 @@ class Ralint(object):
 
         # create query that OR's all team_members together
         user_query = RallyQuery(
-            ["{0} = {1}".format(path, m) for m in self.__include_users],
+            ["{0} = {1}".format(path, m) for m in self.options['include_users']],
             bool_op='OR')
 
         # if initial query was empty, return user_query
@@ -307,6 +315,17 @@ def get_parser():
         nargs='+',
         metavar='USER_NAME')
 
+    parser.add_argument(
+        '--points_per_iteration',
+        help='Size of an iteration in points',
+        default=8)
+
+    parser.add_argument(
+        '--include_checks',
+        help='Only run tests that match PATTERN',
+        metavar='PATTERN',
+        default='.*')
+
     return parser
 
 
@@ -360,13 +379,13 @@ def _ralint_init():
     except Exception as e:
         print('\nCould not connect to rally')
         print(str(e))
-        if str(e).find('Pinging') != -1 or str(e).find('ping: unknown host') != -1:
-            print('If you are behind a proxy, try setting HTTP_PROXY and HTTPS_PROXY in your env.')
+        if 'Pinging' in str(e) or 'ping: unknown host' in str(e):
+            print('If you are behind a proxy, '
+                  'try setting HTTP_PROXY and HTTPS_PROXY in your env.')
         print('\n\n')
         raise
 
-
-    return Ralint(rally, include_users=conf_args['include_users'])
+    return Ralint(rally, conf_args)
 
 
 def get_check_functions():
@@ -381,8 +400,10 @@ def get_check_functions():
 
 def _run_checkers(rally):
     """Run rally lint checks."""
+    check_func_re = re.compile(rally.options['include_checks'])
     for check_func in get_check_functions():
-        output(check_func.__doc__, check_func(rally))
+        if check_func_re.search(check_func.__doc__):
+            output(check_func.__doc__, check_func(rally))
 
 
 def ralint():
