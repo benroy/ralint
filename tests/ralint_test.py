@@ -99,7 +99,8 @@ class TestRalint(TestCase):
             """Check the query passed to PyralRallyMock.get."""
             self.assertEqual(query, test_query())
 
-        ralint_obj = ralint.Ralint(PyralRallyMock(get_delegate=get_delegate), {})
+        ralint_obj = ralint.Ralint(
+            PyralRallyMock(get_delegate=get_delegate), {})
 
         ralint_obj.get('some entity', test_query)
 
@@ -113,7 +114,7 @@ class TestRalint(TestCase):
             self.assertRegexpMatches(query, user_regexp)
 
         options = {}
-        options['include_users']=users
+        options['filter_owner'] = users
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate),
             options)
@@ -128,9 +129,9 @@ class TestRalint(TestCase):
             """Check the query passed to PyralRallyMock.get."""
             user_regexp = r'.*\) OR \(.*'.join(users)
             self.assertNotRegexpMatches(query, user_regexp)
-        
+
         options = {}
-        options['include_users']=users
+        options['filter_owner'] = users
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate),
             options)
@@ -150,7 +151,7 @@ class TestRalint(TestCase):
             self.assertRegexpMatches(query, initial_query_str)
 
         options = {}
-        options['include_users']=users
+        options['filter_owner'] = users
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate),
             options)

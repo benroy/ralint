@@ -144,7 +144,7 @@ class RallyQuery(object):
         if not (isinstance(term, RallyQuery) or
                 re.compile(r'^[^\s\(\)]+ [^\s\(\)]+ [^\s\(\)]+$').match(term)):
             raise ValueError('Invalid format. Must be a RallyQuery or a '
-                             'string like: X > Y')
+                             'string like: X > Y\n{0}'.format(term))
 
     def add_term(self, term, bool_op='AND'):
         """Add a term to the query."""
@@ -183,19 +183,60 @@ class RallyQueryCurrentIteration(RallyQuery):
         super(RallyQueryCurrentIteration, self).__init__(terms)
 
 
-def build_user_name_reference(entity_name):
+def build_attribute_reference(entity_name, attr):
     """Get the path to the user associated with entity."""
-    owner_ref = {
-        'HierarchicalRequirement': ['Owner'],
-        'UserIterationCapacity':   ['User'],
-        'Task':                    ['Owner'],
+    attr_ref = {'owner': {
+        'HierarchicalRequirement': ['Owner.UserName'],
+        'UserIterationCapacity':   ['User.UserName'],
+        'Task':                    ['Owner.UserName'],
         'User':                    []
-    }.get(entity_name, None)
+    }}.get(attr, {}).get(entity_name, None)
 
-    if owner_ref is None:
+    if attr_ref is None:
         return
 
-    return ".".join(owner_ref + ['UserName'])
+    return attr_ref
+
+
+class RalintFilter(object):
+
+    """Ralint Filter."""
+
+    def __init__(self):
+        """Initialize RalintFilter."""
+        super(RalintFilter, self).__init__()
+
+    def apply(self, entity_name, query, options):
+        """Apply filters."""
+        # if no team_members were specified, return unmodified query
+        attr = 'owner'
+        key = 'filter_{0}'.format(attr)
+        if key not in options or not options[key]:
+            return query
+
+        path = build_attribute_reference(entity_name, attr)
+
+        # if entity has no user attribute, return unmodified query
+        if path is None:
+            return query
+
+        return self.__apply_user_filter(path, query, options['filter_owner'])
+
+    def __apply_user_filter(self, path, query, users):
+        """Insert additional terms into query."""
+        # create query that OR's all team_members together
+        user_query = RallyQuery(
+            ["{0} = {1}".format(path, m)
+             for m in users],
+            bool_op='OR')
+
+        # if initial query was empty, return user_query
+        if query is None:
+            return user_query
+
+        # or add user_query to existing query
+        query.add_term(user_query)
+        return query
 
 
 class Ralint(object):
@@ -208,31 +249,6 @@ class Ralint(object):
         self.__rally = pyral_rally_instance
         self.options = conf_args
 
-    def __apply_query_filters(self, entity_name, query):
-        """Insert additional terms into query."""
-        # if no team_members were specified, return unmodified query
-        if not('include_users' in self.options) or self.options['include_users'] is None:
-            return query
-
-        path = build_user_name_reference(entity_name)
-
-        # if entity has no user attribute, return unmodified query
-        if path is None:
-            return query
-
-        # create query that OR's all team_members together
-        user_query = RallyQuery(
-            ["{0} = {1}".format(path, m) for m in self.options['include_users']],
-            bool_op='OR')
-
-        # if initial query was empty, return user_query
-        if query is None:
-            return user_query
-
-        # or add user_query to existing query
-        query.add_term(user_query)
-        return query
-
     def get(self, entity_name, query=None):
         """
         Wrap the pyral get method.
@@ -243,7 +259,7 @@ class Ralint(object):
         3) Does some minimal, generic error "handling"
         4) Coverts pyral's response object to a list of entities
         """
-        query = self.__apply_query_filters(entity_name, query)
+        query = RalintFilter().apply(entity_name, query, self.options)
 
         if query is None:
             pyral_resp = self.__rally.get(entity_name,
@@ -291,41 +307,49 @@ def get_parser():
 
     parser.add_argument(
         '--rally_server',
-        help='Rally server domain name',
+        help='Rally server domain name.',
         default='rally1.rallydev.com')
 
     parser.add_argument(
         '--rally_user',
-        help='User name used to login to Rally',
+        help='User name used to login to Rally.',
         default=argparse.SUPPRESS)
 
     parser.add_argument(
         '--rally_password',
-        help='Password used to login to Rally',
+        help='Password used to login to Rally.',
         default=argparse.SUPPRESS)
 
     parser.add_argument(
         '--rally_project',
-        help='Rally project',
+        help='Rally project.',
         default=argparse.SUPPRESS)
 
     parser.add_argument(
-        '--include_users',
-        help='Only run checks on items owned by specified users',
-        nargs='+',
-        metavar='USER_NAME')
-
-    parser.add_argument(
         '--points_per_iteration',
-        help='Size of an iteration in points',
+        help='Size of an iteration in points.',
         default=8)
 
     parser.add_argument(
         '--include_checks',
-        help='Only run tests that match PATTERN',
+        help='Only run tests that match PATTERN.',
+        nargs='+',
         metavar='PATTERN',
         default='.*')
 
+    parser.add_argument(
+        '--filter_owner',
+        help='Only run checks on items owned by specified users.',
+        nargs='+',
+        metavar='USER_NAME')
+
+    parser.add_argument(
+        '--filter_iterations',
+        help='Only check ITERATION. Default is current iteration.',
+        nargs='+',
+        metavar='ITERATION',
+        default='current'
+        )
     return parser
 
 
@@ -339,6 +363,13 @@ class RalintConfig(object):
 
         parser = get_parser()
 
+        # FIXME: see http://stackoverflow.com/a/5826167/825356
+        # in order for argparse to give errors it would have to see
+        # (or not see) args in cmd_line. so for this idea to work we'd have to
+        # 1) read the conf file
+        # 2) remove from conf file args any args we also see in cmdline
+        # 3) covert conf file args into cmd line formatted string
+        # 4) feed formatted conf file args and cmdline args to argparse
         cmd_line_args = parser.parse_args(cmd_line)
 
         # override with config file specifed in cmd line
@@ -376,10 +407,10 @@ def _ralint_init():
             conf_args['rally_user'],
             conf_args['rally_password'],
             project=conf_args['rally_project'])
-    except Exception as e:
+    except Exception as ex:
         print('\nCould not connect to rally')
-        print(str(e))
-        if 'Pinging' in str(e) or 'ping: unknown host' in str(e):
+        print(str(ex))
+        if 'Pinging' in str(ex) or 'ping: unknown host' in str(ex):
             print('If you are behind a proxy, '
                   'try setting HTTP_PROXY and HTTPS_PROXY in your env.')
         print('\n\n')
