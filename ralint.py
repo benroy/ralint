@@ -49,8 +49,9 @@ def check_users_with_no_stories(rally):
 
 def check_stories_with_hi_points(rally):
     """Oversized stories."""
-    query = RallyQuery(
-        'PlanEstimate >= {0}'.format(rally.options['points_per_iteration']))
+    query = RallyQuery([
+        'PlanEstimate > {0}'.format(rally.options['points_per_iteration']),
+        'DirectChildrenCount = 0'])
 
     return [format_artifact(t)
             for t in rally.get('HierarchicalRequirement', query)]
