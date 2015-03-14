@@ -3,9 +3,13 @@
 
 
 import sys
+import atexit
 import os
 import argparse
 import ConfigParser
+import logging
+import logging.handlers
+import pprint
 import inspect
 import re
 import types
@@ -407,6 +411,8 @@ def _ralint_init():
 
     conf_args = RalintConfig(sys.argv[1:], conf_files).options
 
+    log().info('Config: ' + pprint.pformat(conf_args, width=1))
+
     try:
         rally = pyral.Rally(
             conf_args['rally_server'],
@@ -448,6 +454,46 @@ def _run_checkers(rally):
 def ralint():
     """Lint your rally."""
     _run_checkers(_ralint_init())
+
+
+def log():
+    """Get the module logger."""
+    return logging.getLogger(__name__)
+
+
+def _configure_logging():
+    """Configure logging."""
+    logger = log()
+
+    logger.setLevel(logging.DEBUG)
+
+    # create console handler and set level to debug
+    chan = logging.handlers.RotatingFileHandler(
+        os.path.expanduser('~/.ralint.log'),
+        maxBytes=1024*1024,
+        backupCount=5)
+    chan.setLevel(logging.DEBUG)
+
+    # create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # add formatter to ch
+    chan.setFormatter(formatter)
+
+    # add ch to logger
+    logger.addHandler(chan)
+
+    logger.info('Log started')
+
+
+@atexit.register
+def exit_handler():
+    """Do stuff on exit."""
+    log().info('Exit')
+
+
+_configure_logging()
 
 if __name__ == '__main__':
     ralint()
