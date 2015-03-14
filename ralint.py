@@ -105,7 +105,7 @@ def check_stories_with_no_desc(rally):
 
 
 def check_stories_with_no_tasks(rally):
-    """Untaksed stories."""
+    """Untasked stories."""
     query = RallyQuery("TaskStatus = NONE")
 
     return [format_artifact(s)
@@ -266,7 +266,6 @@ class Ralint(object):
         4) Coverts pyral's response object to a list of entities
         """
         query = RalintFilter().apply(entity_name, query, self.options)
-        print entity_name + ' ' + query()
 
         if query is None:
             pyral_resp = self.__rally.get(entity_name,
@@ -342,7 +341,7 @@ def get_parser():
         help='Only run tests that match PATTERN.',
         nargs='+',
         metavar='PATTERN',
-        default='.*')
+        default=['.*'])
 
     parser.add_argument(
         '--filter_owner',
@@ -438,10 +437,12 @@ def get_check_functions():
 
 def _run_checkers(rally):
     """Run rally lint checks."""
-    check_func_re = re.compile(rally.options['include_checks'])
+    check_func_res = [re.compile(c) for c in rally.options['include_checks']]
     for check_func in get_check_functions():
-        if check_func_re.search(check_func.__doc__):
-            output(check_func.__doc__, check_func(rally))
+        for check_func_re in check_func_res:
+            if check_func_re.search(check_func.__doc__):
+                output(check_func.__doc__, check_func(rally))
+                break
 
 
 def ralint():
