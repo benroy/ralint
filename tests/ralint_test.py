@@ -40,13 +40,6 @@ class TestRalintQuery(TestCase):
         query2 = ralint.RallyQuery(query1)
         self.assertEqual(query1(), query2())
 
-    def test_rally_query_current_iter(self):
-        """RallyQuery can include current iteration."""
-        query = ralint.RallyQuery('X > Y', current_iteration=True)
-        self.assertRegexpMatches(
-            query(),
-            r'.*Iteration.*Date.*today.*\) AND \(.*Iteration.*Date.*today')
-
 
 class PyralRallyRespMock(object):
 

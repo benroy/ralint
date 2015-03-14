@@ -16,7 +16,7 @@ __version__ = '0.0.0'
 
 def check_tasks_with_no_owner(rally):
     """Disowned tasks."""
-    query = RallyQuery("Owner = null", current_iteration=True)
+    query = RallyQuery("Owner = null")
 
     return [format_artifact(t) for t in rally.get('Task', query)]
 
@@ -26,17 +26,18 @@ def check_tasks_with_no_estimate(rally):
     query = RallyQuery(
         ['Estimate = null',
          'Estimate = 0'],
-        bool_op='OR',
-        current_iteration=True)
+        bool_op='OR')
 
     return [format_artifact(t) for t in rally.get('Task', query=query)]
 
 
 def check_users_with_no_stories(rally):
     """Available users."""
-    query = RallyQueryCurrentIteration()
-    stories = rally.get('HierarchicalRequirement', query)
-    users = set(rally.get('User'))
+    if 'users_include' not in rally.options:
+        return []
+
+    users = set(rally.options['users_include'])
+    stories = rally.get('HierarchicalRequirement')
     users_with_stories = set([s.Owner for s in stories])
 
     return [u.Name for u in users - users_with_stories]
@@ -45,8 +46,7 @@ def check_users_with_no_stories(rally):
 def check_stories_with_hi_points(rally):
     """Oversized stories."""
     query = RallyQuery(
-        'PlanEstimate >= {0}'.format(rally.options['points_per_iteration']),
-        current_iteration=True)
+        'PlanEstimate >= {0}'.format(rally.options['points_per_iteration']))
 
     return [format_artifact(t)
             for t in rally.get('HierarchicalRequirement', query)]
@@ -56,8 +56,7 @@ def check_users_with_too_many_tasks(rally):
     """Overtasked users."""
     # get user's capacity
     # need a way to default to some value
-    query = RallyQueryCurrentIteration()
-    response = rally.get('UserIterationCapacity', query)
+    response = rally.get('UserIterationCapacity')
 
     uic_list = [uic for uic in response if uic.TaskEstimates > uic.Capacity]
 
@@ -69,8 +68,7 @@ def check_users_with_too_many_tasks(rally):
 
 def _check_stories_with_incomp_pred(rally):
     """Incomplete dependencies."""
-    query = RallyQueryCurrentIteration()
-    current_stories = rally.get('HierarchicalRequirement', query)
+    current_stories = rally.get('HierarchicalRequirement')
 
     unready_stories = {}
     for story in current_stories:
@@ -84,8 +82,7 @@ def check_stories_with_no_points(rally):
     query = RallyQuery(
         ['PlanEstimate = null',
          'PlanEstimate = 0'],
-        bool_op="OR",
-        current_iteration=True)
+        bool_op="OR")
 
     return [format_artifact(s)
             for s in rally.get('HierarchicalRequirement', query=query)]
@@ -93,7 +90,7 @@ def check_stories_with_no_points(rally):
 
 def check_stories_with_no_owner(rally):
     """Disowned stories."""
-    query = RallyQuery("Owner = null", current_iteration=True)
+    query = RallyQuery("Owner = null")
 
     return [format_artifact(s)
             for s in rally.get('HierarchicalRequirement', query=query)]
@@ -101,7 +98,7 @@ def check_stories_with_no_owner(rally):
 
 def check_stories_with_no_desc(rally):
     """Undescribed stories."""
-    query = RallyQuery("Description = null", current_iteration=True)
+    query = RallyQuery("Description = null")
 
     return [format_artifact(s)
             for s in rally.get('HierarchicalRequirement', query=query)]
@@ -109,7 +106,7 @@ def check_stories_with_no_desc(rally):
 
 def check_stories_with_no_tasks(rally):
     """Untaksed stories."""
-    query = RallyQuery("TaskStatus = NONE", current_iteration=True)
+    query = RallyQuery("TaskStatus = NONE")
 
     return [format_artifact(s)
             for s in rally.get('HierarchicalRequirement', query=query)]
@@ -117,7 +114,7 @@ def check_stories_with_no_tasks(rally):
 
 def check_stories_blocked(rally):
     """Blocked stories."""
-    query = RallyQuery("Blocked = true", current_iteration=True)
+    query = RallyQuery("Blocked = true")
 
     return [format_artifact(s)
             for s in rally.get('HierarchicalRequirement', query=query)]
@@ -127,16 +124,13 @@ class RallyQuery(object):
 
     """Rally Query."""
 
-    def __init__(self, term, current_iteration=False, bool_op='AND'):
+    def __init__(self, term, bool_op='AND'):
         """Rally Query constructor."""
         super(RallyQuery, self).__init__()
 
         self.__query_string = None
 
         self.add_term(term, bool_op)
-
-        if current_iteration:
-            self.and_current_iteration()
 
     @staticmethod
     def __validate_term(term):
@@ -161,36 +155,28 @@ class RallyQuery(object):
                     self.__query_string,
                     bool_op,
                     term)
-
-    def and_current_iteration(self):
-        """Add current iteration to query."""
-        self.add_term(RallyQueryCurrentIteration())
+        return self
 
     def __call__(self):
         """Return the query string."""
         return self.__query_string
 
 
-class RallyQueryCurrentIteration(RallyQuery):
-
-    """Shortcut for creating a RallyQuery for the current iteration."""
-
-    def __init__(self):
-        """Construct a RallyQueryCurrentIteration instance."""
-        terms = ['Iteration.StartDate < today',
-                 'Iteration.EndDate > today']
-
-        super(RallyQueryCurrentIteration, self).__init__(terms)
-
-
 def build_attribute_reference(entity_name, attr):
     """Get the path to the user associated with entity."""
-    attr_ref = {'owner': {
-        'HierarchicalRequirement': ['Owner.UserName'],
-        'UserIterationCapacity':   ['User.UserName'],
-        'Task':                    ['Owner.UserName'],
-        'User':                    []
-    }}.get(attr, {}).get(entity_name, None)
+    attr_ref = {
+        'iteration': {
+            'HierarchicalRequirement': ['Iteration'],
+            'UserIterationCapacity':   ['Iteration'],
+            'Task':                    ['Iteration'],
+            'User':                    []
+        },
+        'owner': {
+            'HierarchicalRequirement': ['Owner.UserName'],
+            'UserIterationCapacity':   ['User.UserName'],
+            'Task':                    ['Owner.UserName'],
+            'User':                    []
+        }}.get(attr, {}).get(entity_name, None)
 
     if attr_ref is None:
         return
@@ -209,34 +195,54 @@ class RalintFilter(object):
     def apply(self, entity_name, query, options):
         """Apply filters."""
         # if no team_members were specified, return unmodified query
-        attr = 'owner'
-        key = 'filter_{0}'.format(attr)
-        if key not in options or not options[key]:
-            return query
 
-        path = build_attribute_reference(entity_name, attr)
+        apply_func = {
+            'owner':     self.__apply_user_filter,
+            'iteration': self.__apply_iter_filter
+        }
 
-        # if entity has no user attribute, return unmodified query
-        if path is None:
-            return query
+        for attr in apply_func.keys():
+            key = 'filter_{0}'.format(attr)
+            if key not in options or not options[key]:
+                continue
 
-        return self.__apply_user_filter(path, query, options['filter_owner'])
+            path = build_attribute_reference(entity_name, attr)
 
-    def __apply_user_filter(self, path, query, users):
+            # if entity has no user attribute, return unmodified query
+            if path is None:
+                return query
+
+            filter_query = apply_func[attr](path, options['filter_' + attr])
+
+            # if initial query was empty, return user_query
+            if query is None:
+                query = filter_query
+            else:
+                # or add user_query to existing query
+                query.add_term(filter_query)
+
+        return query
+
+    def __apply_user_filter(self, path, users):
         """Insert additional terms into query."""
         # create query that OR's all team_members together
-        user_query = RallyQuery(
+        return RallyQuery(
             ["{0} = {1}".format(path, m)
              for m in users],
             bool_op='OR')
 
-        # if initial query was empty, return user_query
-        if query is None:
-            return user_query
-
-        # or add user_query to existing query
-        query.add_term(user_query)
-        return query
+    def __apply_iter_filter(self, path, iters):
+        """Apply iteration filter."""
+        if iters == ['current']:
+            return RallyQuery([
+                '.'.join(path + ['StartDate']) + ' <= today',
+                '.'.join(path + ['EndDate']) + ' >= today'
+            ])
+        elif iters == ['future']:
+            return RallyQuery(
+                '.'.join(path + ['EndDate']) + ' >= today')
+        else:
+            raise ValueError('unknown filter_iteration value: ' + str(iters))
 
 
 class Ralint(object):
@@ -260,6 +266,7 @@ class Ralint(object):
         4) Coverts pyral's response object to a list of entities
         """
         query = RalintFilter().apply(entity_name, query, self.options)
+        print entity_name + ' ' + query()
 
         if query is None:
             pyral_resp = self.__rally.get(entity_name,
@@ -344,11 +351,11 @@ def get_parser():
         metavar='USER_NAME')
 
     parser.add_argument(
-        '--filter_iterations',
+        '--filter_iteration',
         help='Only check ITERATION. Default is current iteration.',
         nargs='+',
         metavar='ITERATION',
-        default='current'
+        default=['current']
         )
     return parser
 
