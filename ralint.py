@@ -309,11 +309,12 @@ def get_parser():
     """Get Parser."""
     parser = argparse.ArgumentParser()
 
+    default_cfg_file = os.path.expanduser('~/.ralint.conf')
     parser.add_argument(
         '--conf_file',
-        help='Specify config file',
+        help='Specify config file. Defaults to {0}.'.format(default_cfg_file),
         metavar='FILE',
-        default=os.path.expanduser('~/.ralint.conf'))
+        default=default_cfg_file)
 
     parser.add_argument(
         '--rally_server',
@@ -342,20 +343,21 @@ def get_parser():
 
     parser.add_argument(
         '--include_checks',
-        help='Only run tests that match PATTERN.',
+        help='Only run checks that match PATTERN.',
         nargs='+',
         metavar='PATTERN',
         default=['.*'])
 
     parser.add_argument(
         '--filter_owner',
-        help='Only run checks on items owned by specified users.',
+        help='Only check items owned by USER_NAME.',
         nargs='+',
         metavar='USER_NAME')
 
     parser.add_argument(
         '--filter_iteration',
-        help='Only check ITERATION. Default is current iteration.',
+        help='Only check items scheduled for ITERATION. '
+             'Default is current iteration.',
         nargs='+',
         metavar='ITERATION',
         default=['current']
