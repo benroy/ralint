@@ -20,9 +20,17 @@ __version__ = '0.0.0'
 
 def check_tasks_with_no_owner(rally):
     """Disowned tasks."""
-    query = RallyQuery("Owner = null")
 
-    return [format_artifact(t) for t in rally.get('Task', query)]
+    # Some filters like include_feature can only be applied to stories
+    # and story can't be referenced directly from task (only it's ABC can)
+    # In order for filters to apply to tasks we have to get (filter) stories
+    # separately and do a manual filteing of tasks
+    # This logic should ideally be factored out of check function
+    tasks = rally.get('Task', RallyQuery("Owner = null"))
+    story_ids = [s.ObjectID for s in rally.get('HierarchicalRequirement')]
+
+    return [format_artifact(t) for t in tasks
+            if t.WorkProduct.ObjectID in story_ids]
 
 
 def check_tasks_with_no_estimate(rally):
@@ -32,7 +40,11 @@ def check_tasks_with_no_estimate(rally):
          'Estimate = 0'],
         bool_op='OR')
 
-    return [format_artifact(t) for t in rally.get('Task', query=query)]
+    tasks = rally.get('Task', query=query)
+    story_ids = [s.ObjectID for s in rally.get('HierarchicalRequirement')]
+
+    return [format_artifact(t) for t in tasks
+            if t.WorkProduct.ObjectID in story_ids]
 
 
 def check_users_with_no_stories(rally):
@@ -78,9 +90,11 @@ def check_stories_with_incomp_pred(rally):
     unmet_deps = {}
     for story in current_stories:
         for pred in story.Predecessors:
-            if (pred.ScheduleState != 'Completed'
-                    and story.Iteration.StartDate <= pred.Iteration.StartDate):
-                unmet_deps[story] = unmet_deps.get(story, []) + [pred]
+            if pred.ScheduleState != 'Completed':
+                siter = story.Iteration
+                piter = pred.Iteration
+                if piter is None or siter.StartDate <= piter.StartDate:
+                    unmet_deps[story] = unmet_deps.get(story, []) + [pred]
 
     return [
         '{0} has unmet dependencies:\n    {1}'.format(
@@ -181,17 +195,20 @@ class RallyQuery(object):
 def build_attribute_reference(entity_name, attr):
     """Get the path to the user associated with entity."""
     attr_ref = {
+        'feature': {
+            'HierarchicalRequirement': 'Feature.FormattedID'
+            #, 'Task': 'WorkProduct.Feature.Name'
+        },
         'iteration': {
-            'HierarchicalRequirement': ['Iteration'],
-            'UserIterationCapacity':   ['Iteration'],
-            'Task':                    ['Iteration'],
-            'User':                    []
+            'HierarchicalRequirement': 'Iteration',
+            'UserIterationCapacity':   'Iteration',
+            'Task':                    'Iteration',
         },
         'owner': {
-            'HierarchicalRequirement': ['Owner.UserName'],
-            'UserIterationCapacity':   ['User.UserName'],
-            'Task':                    ['Owner.UserName'],
-            'User':                    []
+            'HierarchicalRequirement': 'Owner.UserName',
+            'UserIterationCapacity':   'User.UserName',
+            'Task':                    'Owner.UserName',
+            'User':                    'UserName'
         }}.get(attr, {}).get(entity_name, None)
 
     if attr_ref is None:
@@ -214,7 +231,8 @@ class RalintFilter(object):
 
         apply_func = {
             'owner':     self.__apply_user_filter,
-            'iteration': self.__apply_iter_filter
+            'iteration': self.__apply_iter_filter,
+            'feature':   self.__apply_feat_filter
         }
 
         for attr in apply_func.keys():
@@ -251,14 +269,21 @@ class RalintFilter(object):
         """Apply iteration filter."""
         if iters == ['current']:
             return RallyQuery([
-                '.'.join(path + ['StartDate']) + ' <= today',
-                '.'.join(path + ['EndDate']) + ' >= today'
+                path + '.StartDate' + ' <= today',
+                path + '.EndDate' + ' >= today'
             ])
         elif iters == ['future']:
             return RallyQuery(
-                '.'.join(path + ['EndDate']) + ' >= today')
+                path + '.EndDate' + ' >= today')
         else:
             raise ValueError('unknown filter_iteration value: ' + str(iters))
+
+    def __apply_feat_filter(self, path, features):
+        """Apply feature filter."""
+        return RallyQuery(
+            ["{0} = {1}".format(path, f)
+             for f in features],
+            bool_op='OR')
 
 
 class Ralint(object):
@@ -371,6 +396,13 @@ def get_parser():
         nargs='+',
         metavar='ITERATION',
         default=['current']
+        )
+
+    parser.add_argument(
+        '--filter_feature',
+        help='Only check items that are part of FEATURE.',
+        nargs='+',
+        metavar='FEATURE'
         )
     return parser
 
