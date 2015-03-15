@@ -71,15 +71,22 @@ def check_users_with_too_many_tasks(rally):
             for uic in uic_list]
 
 
-def _check_stories_with_incomp_pred(rally):
+def check_stories_with_incomp_pred(rally):
     """Incomplete dependencies."""
     current_stories = rally.get('HierarchicalRequirement')
 
-    unready_stories = {}
+    unmet_deps = {}
     for story in current_stories:
         for pred in story.Predecessors:
-            if pred.ScheduleState != 'Accepted':
-                unready_stories[story] = (unready_stories[story] or []) + [pred]
+            if (pred.ScheduleState != 'Completed'
+                    and story.Iteration.StartDate <= pred.Iteration.StartDate):
+                unmet_deps[story] = unmet_deps.get(story, []) + [pred]
+
+    return [
+        '{0} has unmet dependencies:\n    {1}'.format(
+            format_artifact(s),
+            '\n    '.join([format_artifact(d) for d in unmet_deps[s]]))
+        for s in unmet_deps.keys()]
 
 
 def check_stories_with_no_points(rally):
@@ -152,7 +159,7 @@ class RallyQuery(object):
                 self.add_term(sub_term, bool_op)
         else:
             self.__validate_term(term)
-            term = term() if isinstance(term, RallyQuery) else term
+            term = str(term)
             if self.__query_string is None:
                 self.__query_string = term
             else:
@@ -162,7 +169,11 @@ class RallyQuery(object):
                     term)
         return self
 
-    def __call__(self):
+    def ___unicode__(self):
+        """Return the query string."""
+        return u'{0}'.format(str(self))
+
+    def __str__(self):
         """Return the query string."""
         return self.__query_string
 
@@ -272,21 +283,19 @@ class Ralint(object):
         """
         query = RalintFilter().apply(entity_name, query, self.options)
 
-        if query is None:
-            pyral_resp = self.__rally.get(entity_name,
-                                          projectScopeDown=True)
-        else:
-            pyral_resp = self.__rally.get(entity_name,
-                                          query=query(),
-                                          projectScopeDown=True)
+        log().info('GET entity=%s query=%s', entity_name, str(query))
+
+        pyral_resp = self.__rally.get(entity_name,
+                                      query=str(query),
+                                      projectScopeDown=True)
 
         if len(pyral_resp.errors) > 0:
-            print("Could not get '{0}', query='{1}'".format(
-                entity_name,
-                query() if query else ''))
-
-            print(pyral_resp.errors)
-            raise RuntimeError
+            errs = '\n'.join(pyral_resp.errors)
+            log().error("Could not get %s, query=%s\n%s",
+                        entity_name,
+                        str(query),
+                        errs)
+            raise RuntimeError(errs)
 
         return list(pyral_resp)
 

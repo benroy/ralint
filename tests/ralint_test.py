@@ -25,20 +25,20 @@ class TestRalintQuery(TestCase):
         query.add_term('foo foo foo', bool_op='OR')
         query.add_term('bar bar bar')
         query.add_term(query)
-        lparens = query().count('(')
-        rparens = query().count(')')
+        lparens = str(query).count('(')
+        rparens = str(query).count(')')
         self.assertEqual(lparens, rparens)
 
     def test_rally_query_from_list(self):
         """RallyQuery can be created from list of terms."""
         query = ralint.RallyQuery(['X > Y', 'A = B'])
-        self.assertRegexpMatches(query(), r'\) (AND|OR) \(')
+        self.assertRegexpMatches(str(query), r'\) (AND|OR) \(')
 
     def test_rally_query_from_query(self):
         """RallyQuery can be created from another RallyQuery."""
         query1 = ralint.RallyQuery('X > Y')
         query2 = ralint.RallyQuery(query1)
-        self.assertEqual(query1(), query2())
+        self.assertEqual(str(query1), str(query2))
 
 
 class PyralRallyRespMock(object):
@@ -90,7 +90,7 @@ class TestRalint(TestCase):
 
         def get_delegate(_, query=None, **kwargs):
             """Check the query passed to PyralRallyMock.get."""
-            self.assertEqual(query, test_query())
+            self.assertEqual(query, str(test_query))
 
         ralint_obj = ralint.Ralint(
             PyralRallyMock(get_delegate=get_delegate), {})
@@ -134,7 +134,7 @@ class TestRalint(TestCase):
     def test_get_inserts_user(self):
         """Rally.get inserts user filter into initial query."""
         initial_query = ralint.RallyQuery('x < y')
-        initial_query_str = initial_query()
+        initial_query_str = str(initial_query)
         users = ['Ike', 'Luke']
 
         def get_delegate(_, query=None, **kwargs):
