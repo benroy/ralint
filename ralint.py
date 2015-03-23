@@ -20,7 +20,6 @@ __version__ = '0.0.0'
 
 def check_tasks_with_no_owner(rally):
     """Disowned tasks."""
-
     # Some filters like include_feature can only be applied to stories
     # and story can't be referenced directly from task (only it's ABC can)
     # In order for filters to apply to tasks we have to get (filter) stories
@@ -47,16 +46,93 @@ def check_tasks_with_no_estimate(rally):
             if t.WorkProduct.ObjectID in story_ids]
 
 
-def check_users_with_no_stories(rally):
-    """Available users."""
-    if 'users_include' not in rally.options:
+def check_users_with_no_capacity(rally):
+    """Check for users with no capacity."""
+    if 'filter_owner' not in rally.options:
         return []
 
-    users = set(rally.options['users_include'])
-    stories = rally.get('HierarchicalRequirement')
-    users_with_stories = set([s.Owner for s in stories])
+    uics = rally.get('UserIterationCapacity')
+    uwc = [uic.User.UserName for uic in uics]
+    return [u for u in rally.options['filter_owner'] if u not in uwc]
 
-    return [u.Name for u in users - users_with_stories]
+
+def check_users_with_no_stories(rally):
+    """Available users."""
+    if 'filter_owner' not in rally.options:
+        return []
+
+    users = set(rally.options['filter_owner'])
+    stories = rally.get('HierarchicalRequirement')
+    users_with_stories = set([s.Owner.UserName for s in stories])
+
+    return [u for u in users - users_with_stories]
+
+
+def check_users_with_hi_points(rally):
+    """Overstoried users"""
+    if 'filter_owner' not in rally.options:
+        return []
+
+    if 'points_per_iteration' not in rally.options:
+        return []
+
+    stories = rally.get('HierarchicalRequirement')
+
+    uip = [(s.Owner.UserName, s.Iteration.Name, s.PlanEstimate)
+           for s in stories]
+    info = {}
+    for user, itr, points in uip:
+        key = user + ', ' + itr
+        info[key] = info.get(key, 0) + (points or 0)
+
+    return ['{0}: {1}'.format(ikey, info[ikey])
+            for ikey in info.keys()
+            if info[ikey] > float(rally.options['points_per_iteration'])]
+
+def check_users_with_lo_points(rally):
+    """Understoried users"""
+    if 'filter_owner' not in rally.options:
+        return []
+
+    if 'points_per_iteration' not in rally.options:
+        return []
+
+    stories = rally.get('HierarchicalRequirement')
+
+    uip = [(s.Owner.UserName, s.Iteration.Name, s.PlanEstimate)
+           for s in stories]
+    info = {}
+    for user, itr, points in uip:
+        key = itr + ', ' + user
+        info[key] = info.get(key, 0) + (points or 0)
+
+    return sorted(['{0}: {1}'.format(ikey, info[ikey])
+                   for ikey in info.keys()
+                   if info[ikey] < 0.75 *
+                   float(rally.options['points_per_iteration'])])
+
+
+def check_epics_with_too_many_cooks(rally):
+    """Too many cooks"""
+    epics = {}
+    stories = rally.get(
+        'HierarchicalRequirement',
+        RallyQuery('DirectChildrenCount = 0'))
+    for story in stories:
+        epics.setdefault(story.Parent.Name, []).append(
+            story.Owner.UserName)
+
+    tmc = []
+    for epic, owners in epics.iteritems():
+        story_count = float(len(owners))
+        owner_count = float(len(set(owners)))
+        if story_count > 1 and (story_count / owner_count) < 2:
+            tmc.append('{0} has {1} stories owned by {2} people'.format(
+                epic,
+                int(story_count),
+                int(owner_count)))
+
+    return tmc
 
 
 def check_stories_with_hi_points(rally):
@@ -203,6 +279,7 @@ def build_attribute_reference(entity_name, attr):
             'HierarchicalRequirement': 'Iteration',
             'UserIterationCapacity':   'Iteration',
             'Task':                    'Iteration',
+            'Iteration':               ''
         },
         'owner': {
             'HierarchicalRequirement': 'Owner.UserName',
@@ -327,10 +404,11 @@ class Ralint(object):
 
 def output(title, details):
     """Format the output of a check function."""
-    if len(details) == 0:
+    print('==={0} ({1})'.format(title, len(details)))
+
+    if not details or len(details) == 0:
         return
 
-    print('==={0} ({1})'.format(title, len(details)))
     print('\n'.join(details))
     print('\n')
 
@@ -387,7 +465,8 @@ def get_parser():
         '--filter_owner',
         help='Only check items owned by USER_NAME.',
         nargs='+',
-        metavar='USER_NAME')
+        metavar='USER_NAME',
+        default=argparse.SUPPRESS)
 
     parser.add_argument(
         '--filter_iteration',
@@ -402,7 +481,8 @@ def get_parser():
         '--filter_feature',
         help='Only check items that are part of FEATURE.',
         nargs='+',
-        metavar='FEATURE'
+        metavar='FEATURE',
+        default=argparse.SUPPRESS
         )
     return parser
 
@@ -433,11 +513,16 @@ class RalintConfig(object):
         config = ConfigParser.SafeConfigParser()
         if len(config.read(conf_files)) > 0:
             conf_file_args = dict(config.items('ralint'))
+            self.split_list_values(conf_file_args)
 
         # override with cmdline args
         conf_file_args.update(vars(cmd_line_args))
 
         self.options = conf_file_args
+
+    def split_list_values(self, args):
+        """convert delimited values into lists."""
+        args['filter_owner'] = args['filter_owner'].split()
 
 
 def _ralint_init():
