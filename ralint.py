@@ -51,7 +51,8 @@ def check_users_with_no_capacity(rally):
     if 'filter_owner' not in rally.options:
         return []
 
-    uics = rally.get('UserIterationCapacity')
+    uics = rally.get('UserIterationCapacity',
+                     RallyQuery('User != null'))
     uwc = [uic.User.UserName for uic in uics]
     return [u for u in rally.options['filter_owner'] if u not in uwc]
 
@@ -62,7 +63,8 @@ def check_users_with_no_stories(rally):
         return []
 
     users = set(rally.options['filter_owner'])
-    stories = rally.get('HierarchicalRequirement')
+    stories = rally.get('HierarchicalRequirement',
+                        RallyQuery('Owner != null'))
     users_with_stories = set([s.Owner.UserName for s in stories])
 
     return [u for u in users - users_with_stories]
@@ -76,7 +78,9 @@ def check_users_with_hi_points(rally):
     if 'points_per_iteration' not in rally.options:
         return []
 
-    stories = rally.get('HierarchicalRequirement')
+    stories = rally.get('HierarchicalRequirement',
+                        RallyQuery(['Owner != null',
+                                    'Iteration != null']))
 
     uip = [(s.Owner.UserName, s.Iteration.Name, s.PlanEstimate)
            for s in stories]
@@ -89,6 +93,7 @@ def check_users_with_hi_points(rally):
             for ikey in info.keys()
             if info[ikey] > float(rally.options['points_per_iteration'])]
 
+
 def check_users_with_lo_points(rally):
     """Understoried users"""
     if 'filter_owner' not in rally.options:
@@ -97,7 +102,9 @@ def check_users_with_lo_points(rally):
     if 'points_per_iteration' not in rally.options:
         return []
 
-    stories = rally.get('HierarchicalRequirement')
+    stories = rally.get('HierarchicalRequirement',
+                        RallyQuery(['Owner != null',
+                                    'Iteration != null']))
 
     uip = [(s.Owner.UserName, s.Iteration.Name, s.PlanEstimate)
            for s in stories]
@@ -117,7 +124,9 @@ def check_epics_with_too_many_cooks(rally):
     epics = {}
     stories = rally.get(
         'HierarchicalRequirement',
-        RallyQuery('DirectChildrenCount = 0'))
+        RallyQuery(['DirectChildrenCount = 0',
+                    'Parent != null',
+                    'Owner != null']))
     for story in stories:
         epics.setdefault(story.Parent.Name, []).append(
             story.Owner.UserName)
@@ -169,7 +178,9 @@ def check_stories_with_incomp_pred(rally):
             if pred.ScheduleState != 'Completed':
                 siter = story.Iteration
                 piter = pred.Iteration
-                if piter is None or siter.StartDate <= piter.StartDate:
+                if (piter is None or siter.StartDate < piter.StartDate or
+                    (siter.StartDate == piter.StartDate and
+                     story.Owner.UserName != pred.Owner.UserName)):
                     unmet_deps[story] = unmet_deps.get(story, []) + [pred]
 
     return [
@@ -220,6 +231,24 @@ def check_stories_blocked(rally):
 
     return [format_artifact(s)
             for s in rally.get('HierarchicalRequirement', query=query)]
+
+
+def check_stories_with_lo_tasks(rally):
+    """Undertasked stories."""
+
+    def close_enough(points, task_hours):
+        """Are points and task_hours roughly equal."""
+        point_hours = (((2 * float(points)) - 1.3) * 8)
+        task_hours = float(task_hours)
+        numerator = min(point_hours, task_hours)
+        denominator = max(point_hours, task_hours)
+        return numerator/denominator > 0.5
+
+    return [format_artifact(s)
+            for s in rally.get('HierarchicalRequirement',
+                               RallyQuery(['PlanEstimate != null',
+                                           'TaskEstimateTotal != 0']))
+            if not close_enough(s.PlanEstimate, s.TaskEstimateTotal)]
 
 
 class RallyQuery(object):
@@ -273,7 +302,6 @@ def build_attribute_reference(entity_name, attr):
     attr_ref = {
         'feature': {
             'HierarchicalRequirement': 'Feature.FormattedID'
-            #, 'Task': 'WorkProduct.Feature.Name'
         },
         'iteration': {
             'HierarchicalRequirement': 'Iteration',
@@ -522,7 +550,7 @@ class RalintConfig(object):
 
     def split_list_values(self, args):
         """convert delimited values into lists."""
-        args['filter_owner'] = args['filter_owner'].split()
+        args['filter_owner'] = args.get('filter_owner', '').split()
 
 
 def _ralint_init():
