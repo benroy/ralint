@@ -211,10 +211,9 @@ def check_stories_with_no_owner(rally):
 
 def check_stories_with_no_desc(rally):
     """Undescribed stories."""
-    query = RallyQuery("Description = null")
-
     return [format_artifact(s)
-            for s in rally.get('HierarchicalRequirement', query=query)]
+            for s in rally.get('HierarchicalRequirement')
+            if len(s.Description) < 140]
 
 
 def check_stories_with_no_tasks(rally):
