@@ -234,7 +234,6 @@ def check_stories_blocked(rally):
 
 def check_stories_with_lo_tasks(rally):
     """Undertasked stories."""
-
     def close_enough(points, task_hours):
         """Are points and task_hours roughly equal."""
         point_hours = (((2 * float(points)) - 1.3) * 8)
@@ -248,6 +247,13 @@ def check_stories_with_lo_tasks(rally):
                                RallyQuery(['PlanEstimate != null',
                                            'TaskEstimateTotal != 0']))
             if not close_enough(s.PlanEstimate, s.TaskEstimateTotal)]
+
+
+def check_tasks_with_hi_hours(rally):
+    """Oversized tasks."""
+    return [format_artifact(t)
+            for t in rally.get('Task', RallyQuery('Estimate != null'))
+            if float(t.Estimate) > 16]
 
 
 class RallyQuery(object):
