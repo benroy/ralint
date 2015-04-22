@@ -71,7 +71,7 @@ def check_users_with_no_stories(rally):
 
 
 def check_users_with_hi_points(rally):
-    """Overstoried users"""
+    """Overstoried users."""
     if 'filter_owner' not in rally.options:
         return []
 
@@ -95,7 +95,7 @@ def check_users_with_hi_points(rally):
 
 
 def check_users_with_lo_points(rally):
-    """Understoried users"""
+    """Understoried users."""
     if 'filter_owner' not in rally.options:
         return []
 
@@ -120,7 +120,7 @@ def check_users_with_lo_points(rally):
 
 
 def check_epics_with_too_many_cooks(rally):
-    """Too many cooks"""
+    """Too many cooks."""
     epics = {}
     stories = rally.get(
         'HierarchicalRequirement',
@@ -179,8 +179,8 @@ def check_stories_with_incomp_pred(rally):
                 siter = story.Iteration
                 piter = pred.Iteration
                 if (piter is None or siter.StartDate < piter.StartDate or
-                    (siter.StartDate == piter.StartDate and
-                     story.Owner.UserName != pred.Owner.UserName)):
+                   (siter.StartDate == piter.StartDate and
+                    story.Owner.UserName != pred.Owner.UserName)):
                     unmet_deps[story] = unmet_deps.get(story, []) + [pred]
 
     return [
