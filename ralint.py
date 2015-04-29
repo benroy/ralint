@@ -451,127 +451,166 @@ def format_artifact(story):
     return '{0}: {1}'.format(story.FormattedID, story.Name)
 
 
-def get_parser():
-    """Get Parser."""
-    parser = argparse.ArgumentParser()
+def parse_cmd_line(cmd_line):
+    """Parse command line."""
+    log().info('command line:' + str(cmd_line))
 
-    default_cfg_file = os.path.expanduser('~/.ralint.conf')
-    parser.add_argument(
+    # User/Pass are required but can either be in the cmd_line or config file.
+    # This is harder than it seems it should be. We do it in three steps.
+    #
+    # Step 1 is a pre-parser that extracts the user, pass and conf file and
+    # removes them from the cmd line (if they're specified). This pre-parser
+    # will not exit or print a usage message if there are problems with the
+    # command line.
+    #
+    # Step 2 is to completely parse all config files. If we parse one or more
+    # user/pass values, we choose the one from the "best" sounce and append it
+    # to the cmd_line. The best source the cmd_line, followed by conf_files.
+    #
+    # Step 3 is to completly parse the full command line, including user/pass
+    # which may have come from a config file. This parser requires user and
+    # pass and will exit and print a usage message if they aren't specified
+    # (or if there are any other issues with the cmd_line).
+
+    # Step 1, pre-parse cmd-line to extract user, pass, conf_file
+    pre_parser = argparse.ArgumentParser(
+        add_help=False,
+        argument_default=argparse.SUPPRESS)
+    pre_parser.add_argument('--conf_file')
+    pre_parser.add_argument('--rally_user')
+    pre_parser.add_argument('--rally_password')
+    cmd_args = None
+
+    # Do not print usage or exit if parser throws an exeption
+    pre_parse_error = False
+    pre_parser.print_usage = lambda _: {}
+    try:
+        cmd_args, cmd_line = pre_parser.parse_known_args(cmd_line)
+        cmd_args = vars(cmd_args)
+        log().info('pre-parsed: ' + str(cmd_args))
+    except BaseException:
+        log().warn('Error during pre-parsing.')
+        pre_parse_error = True
+
+    # Step 2, parse config files. If Step 1 failed, we can skip to Step 3,
+    # which is also guaranteed to fail, but it will give a nice usage message
+    # and exit
+    default_args = {}
+    if not pre_parse_error:
+        conf_files = [
+
+            # config file in ~ lowest priority
+            os.path.expanduser('~/.ralint.conf'),
+
+            # config file specified by env is higher
+            os.getenv('RALINT_CONF') or '',
+
+            # a config file in cwd would be higher still
+            os.path.abspath('.ralint.conf')]
+
+        # but the highest priority conf file would be the one
+        # specified on the cmd line.
+        if 'conf_file' in cmd_args:
+            conf_files.append(cmd_args['conf_file'])
+
+        log().info('parsing config files:' +
+                   ', '.join(conf_files))
+
+        config = ConfigParser.SafeConfigParser()
+        if len(config.read(conf_files)) > 0:
+            default_args = dict(config.items('ralint'))
+
+            # FIXME: Hardcoded hack for user name list
+            default_args['filter_owner'] = default_args.get(
+                'filter_owner', '').split()
+
+        log().info('args parsed from config files:\n' +
+                   pprint.pformat(default_args, width=1))
+
+        # extract username and password and append them
+        # to cmd_line to be parsed by main parser
+        default_args.update(cmd_args)
+        for k in ['rally_user', 'rally_password']:
+            if k in default_args:
+                cmd_line.extend(['--' + k, default_args[k]])
+
+    # Step 3, parse like normal
+    main_parser = argparse.ArgumentParser()
+
+    main_parser.add_argument(
+        '--rally_user',
+        help='Rally user name.',
+        required=True)
+
+    main_parser.add_argument(
+        '--rally_password',
+        help='Rally password.',
+        required=True)
+
+    main_parser.add_argument(
         '--conf_file',
-        help='Specify config file. Defaults to {0}.'.format(default_cfg_file),
         metavar='FILE',
-        default=default_cfg_file)
+        help='Configuration file. Defaults to ~/.ralint.conf')
 
-    parser.add_argument(
+    main_parser.add_argument(
         '--rally_server',
         help='Rally server domain name.',
         default='rally1.rallydev.com')
 
-    parser.add_argument(
-        '--rally_user',
-        help='User name used to login to Rally.',
-        default=argparse.SUPPRESS)
-
-    parser.add_argument(
-        '--rally_password',
-        help='Password used to login to Rally.',
-        default=argparse.SUPPRESS)
-
-    parser.add_argument(
+    main_parser.add_argument(
         '--rally_project',
         help='Rally project.',
         default=argparse.SUPPRESS)
 
-    parser.add_argument(
+    main_parser.add_argument(
         '--points_per_iteration',
         help='Size of an iteration in points.',
         default=8)
 
-    parser.add_argument(
+    main_parser.add_argument(
         '--include_checks',
         help='Only run checks that match PATTERN.',
         nargs='+',
         metavar='PATTERN',
         default=['.*'])
 
-    parser.add_argument(
+    main_parser.add_argument(
         '--filter_owner',
         help='Only check items owned by USER_NAME.',
         nargs='+',
         metavar='USER_NAME',
         default=argparse.SUPPRESS)
 
-    parser.add_argument(
+    main_parser.add_argument(
         '--filter_iteration',
         help='Only check items scheduled for ITERATION. '
              'Default is current iteration.',
         nargs='+',
         metavar='ITERATION',
-        default=['current']
-        )
+        default=['current'])
 
-    parser.add_argument(
+    main_parser.add_argument(
         '--filter_feature',
         help='Only check items that are part of FEATURE.',
         nargs='+',
         metavar='FEATURE',
-        default=argparse.SUPPRESS
-        )
-    return parser
+        default=argparse.SUPPRESS)
 
+    log().info('final parsing: ' + str(cmd_line))
 
-class RalintConfig(object):
+    # override with cmdline args
+    cmd_args = main_parser.parse_args(cmd_line)
+    default_args.update(vars(cmd_args))
 
-    """RalintConfig."""
+    log().info('args:\n' +
+               pprint.pformat(default_args, width=1))
 
-    def __init__(self, cmd_line, conf_files):
-        """Initialize RalintConfig."""
-        super(RalintConfig, self).__init__()
-
-        parser = get_parser()
-
-        # FIXME: see http://stackoverflow.com/a/5826167/825356
-        # in order for argparse to give errors it would have to see
-        # (or not see) args in cmd_line. so for this idea to work we'd have to
-        # 1) read the conf file
-        # 2) remove from conf file args any args we also see in cmdline
-        # 3) covert conf file args into cmd line formatted string
-        # 4) feed formatted conf file args and cmdline args to argparse
-        cmd_line_args = parser.parse_args(cmd_line)
-
-        # override with config file specifed in cmd line
-        conf_files.append(cmd_line_args.conf_file)
-
-        conf_file_args = {}
-        config = ConfigParser.SafeConfigParser()
-        if len(config.read(conf_files)) > 0:
-            conf_file_args = dict(config.items('ralint'))
-            self.split_list_values(conf_file_args)
-
-        # override with cmdline args
-        conf_file_args.update(vars(cmd_line_args))
-
-        self.options = conf_file_args
-
-    def split_list_values(self, args):
-        """convert delimited values into lists."""
-        args['filter_owner'] = args.get('filter_owner', '').split()
+    return default_args
 
 
 def _ralint_init():
     """Return an instance of Rally."""
-    conf_files = [
-
-        # override with config file from ~
-        os.path.expanduser('~/.ralint.conf'),
-
-        # override with enviroment
-        os.getenv('RALINT_CONF') or '',
-
-        # override with config file from cwd
-        os.path.abspath('.ralint_conf')]
-
-    conf_args = RalintConfig(sys.argv[1:], conf_files).options
+    conf_args = parse_cmd_line(sys.argv[1:])
 
     log().info('Config: ' + pprint.pformat(conf_args, width=1))
 
