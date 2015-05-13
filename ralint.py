@@ -256,6 +256,19 @@ def check_tasks_with_hi_hours(rally):
             if float(t.Estimate) > 16]
 
 
+def check_stories_with_no_release(rally):
+    """Release-less stories."""
+    return [format_artifact(s) for s in rally.get(
+        'HierarchicalRequirement',
+        RallyQuery('Release = null'))]
+
+
+def check_stories_with_no_ac(rally):
+    """Unacceptable stories."""
+    return [format_artifact(s) for s in rally.get(
+        'HierarchicalRequirement',
+        RallyQuery('Description !contains cceptance'))]
+
 class RallyQuery(object):
 
     """Rally Query."""
