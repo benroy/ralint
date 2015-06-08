@@ -14,6 +14,7 @@ import inspect
 import re
 import types
 import pyral
+import datetime
 
 __version__ = '0.0.0'
 
@@ -270,6 +271,18 @@ def check_stories_with_no_ac(rally):
     return [format_artifact(s) for s in rally.get(
         'HierarchicalRequirement',
         RallyQuery('Description !contains cceptance'))]
+
+
+def check_tasks_with_no_update(rally):
+    """Outdated tasks."""
+    three_days_ago = (datetime.datetime.utcnow() -
+                      datetime.timedelta(days=3)).isoformat()
+
+    date_term = 'LastUpdateDate < {0}'.format(three_days_ago)
+
+    return [format_artifact(t) for t in rally.get(
+        'Task', RallyQuery(['State = In-Progress', date_term]))]
+
 
 class RallyQuery(object):
 
