@@ -135,7 +135,9 @@ def check_epics_with_too_many_cooks(rally):
     for epic, owners in epics.iteritems():
         story_count = float(len(owners))
         owner_count = float(len(set(owners)))
-        if story_count > 1 and (story_count / owner_count) < 2:
+        if (story_count > 1
+                and owner_count > 2
+                and (story_count / owner_count) < 2):
             tmc.append('{0} has {1} stories owned by {2} people'.format(
                 epic,
                 int(story_count),
